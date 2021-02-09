@@ -48,7 +48,7 @@ from gym_pybullet_drones.envs.single_agent_rl.BaseSingleAgentAviary import Actio
 
 import shared_constants
 
-EPISODE_REWARD_THRESHOLD = -0 # Upperbound: rewards are always negative, but non-zero
+EPISODE_REWARD_THRESHOLD = -0.0 # Upperbound: rewards are always negative, but non-zero
 """float: Reward threshold to halt the script."""
 
 if __name__ == "__main__":
@@ -56,7 +56,7 @@ if __name__ == "__main__":
     #### Define and parse (optional) arguments for the script ##
     parser = argparse.ArgumentParser(description='Single agent reinforcement learning experiments script')
     parser.add_argument('--env',        default='hover',      type=str,             choices=['takeoff', 'hover', 'flythrugate', 'tune'], help='Help (default: ..)', metavar='')
-    parser.add_argument('--algo',       default='ppo',        type=str,             choices=['a2c', 'ppo', 'sac', 'td3', 'ddpg'],        help='Help (default: ..)', metavar='')
+    parser.add_argument('--algo',       default='ppo',        type=str,             choices=['a2c', 'ppo', 'ppo2', 'gsde_ppo', 'sac', 'td3', 'ddpg'],        help='Help (default: ..)', metavar='')
     parser.add_argument('--obs',        default='kin',        type=ObservationType,                                                      help='Help (default: ..)', metavar='')
     parser.add_argument('--act',        default='one_d_rpm',  type=ActionType,                                                           help='Help (default: ..)', metavar='')
     parser.add_argument('--cpu',        default='1',          type=int,                                                                  help='Help (default: ..)', metavar='')        
@@ -126,6 +126,22 @@ if __name__ == "__main__":
     onpolicy_kwargs = dict(activation_fn=torch.nn.ReLU,
                            net_arch=[512, 512, dict(vf=[256, 128], pi=[256, 128])]
                            ) # or None
+
+    ppo2onpolicy_kwargs = dict(activation_fn=torch.nn.ReLU,
+                               net_arch=[512, 512, dict(vf=[256, 128], pi=[256, 128])]
+                               ) # or None
+    """   ppo2onpolicy_kwargs = dict(activation_fn=torch.nn.ReLU,
+                               net_arch=[512, 512, dict(vf=[512, 256], pi=[512, 256])]
+                               ) # or None """
+
+    sde_kwargs = dict(activation_fn=torch.nn.ReLU,
+                      ortho_init=False, 
+                      log_std_init=-2.0,
+                      full_std=False,
+                      sde_net_arch=[512, 512],
+                      net_arch=[1024, 1024, dict(vf=[512, 256], pi=[512, 256])]
+                      ) # or None
+
     if ARGS.algo == 'a2c':
         model = A2C(a2cppoMlpPolicy,
                     train_env,
@@ -138,18 +154,52 @@ if __name__ == "__main__":
                                                                   tensorboard_log=filename+'/tb/',
                                                                   verbose=1
                                                                   )
+
     if ARGS.algo == 'ppo':
         model = PPO(a2cppoMlpPolicy,
                     train_env,
                     policy_kwargs=onpolicy_kwargs,
                     tensorboard_log=filename+'/tb/',
                     verbose=1
-                    ) if ARGS.obs == ObservationType.KIN else PPO(a2cppoCnnPolicy,
-                                                                  train_env,
-                                                                  policy_kwargs=onpolicy_kwargs,
-                                                                  tensorboard_log=filename+'/tb/',
-                                                                  verbose=1
-                                                                  )
+                    )
+                    
+    if ARGS.algo == 'ppo2':
+        model = PPO(a2cppoMlpPolicy,
+                    train_env,
+                    learning_rate=3e-4, #best: 1e-5
+                    batch_size=1280*2, #best: 1280
+                    policy_kwargs=ppo2onpolicy_kwargs,
+                    tensorboard_log=filename+'/tb/',
+                    clip_range=0.2, 
+                    n_epochs=5, #best: 5
+                    gamma=0.99, #best: 0.99
+                    ent_coef=0.0, #best: 0.0
+                    clip_range_vf=None,  #best: None
+                    vf_coef=0.5, #best: 0.5
+                    max_grad_norm=0.5, #best: 0.5
+                    verbose=1
+                    )
+
+    # Parameters extracted from gSDE paper
+    if ARGS.algo == 'gsde_ppo':
+        model = PPO(a2cppoMlpPolicy,
+                    train_env,
+                    learning_rate=1e-5,
+                    batch_size=1280,
+                    policy_kwargs=sde_kwargs,
+                    tensorboard_log=filename+'/tb/',
+                    n_epochs=10,
+                    gamma=0.999,
+                    gae_lambda=0.98,
+                    ent_coef=0.0,
+                    clip_range=0.2,
+                    clip_range_vf=None,
+                    vf_coef=0.5,
+                    max_grad_norm=0.5,
+                    use_sde=True,
+                    sde_sample_freq=4,
+                    verbose=1
+                    )
 
     #### Off-policy algorithms #################################
     offpolicy_kwargs = dict(activation_fn=torch.nn.ReLU,
@@ -206,7 +256,7 @@ if __name__ == "__main__":
                                     n_envs=1,
                                     seed=0
                                     )
-        if env_nam == "hover-aviary-v0": 
+        if env_name == "hover-aviary-v0": 
             eval_env = make_vec_env(HoverAviary,
                                     env_kwargs=sa_env_kwargs,
                                     n_envs=1,
@@ -240,7 +290,8 @@ if __name__ == "__main__":
                                  deterministic=True,
                                  render=False
                                  )
-    model.learn(total_timesteps=int(1e12),
+    total_timesteps = 100 * 10**6
+    model.learn(total_timesteps=total_timesteps,
                 callback=eval_callback,
                 log_interval=100
                 )

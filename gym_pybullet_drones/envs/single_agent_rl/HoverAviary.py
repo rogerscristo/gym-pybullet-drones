@@ -71,9 +71,21 @@ class HoverAviary(BaseSingleAgentAviary):
         float
             The reward.
 
+        original reward function
+            original_reward = -1 * np.linalg.norm(np.array([0, 0, 1])-state[0:3])**2
+
         """
         state = self._getDroneStateVector(0)
-        return -1 * np.linalg.norm(np.array([0, 0, 1])-state[0:3])**2
+        #print('state: {}'.format(state[0:3]))
+        #print(self.ang_v)
+        distance_to_goal = np.linalg.norm(np.array([0, 0, 1])-state[0:3])
+        distance_to_stabilization = np.linalg.norm(np.array([0, 0, 1])-self.ang_v)
+        #reward = (np.linalg.norm(1/distance_to_goal)-10) + (np.linalg.norm(1/distance_to_stabilization))
+        reward = -1 * distance_to_goal + (1/distance_to_stabilization)
+        if reward > -0.0000001:
+            return -1
+        else:
+            return reward
 
     ################################################################################
     

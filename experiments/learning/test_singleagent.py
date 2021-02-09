@@ -59,7 +59,7 @@ if __name__ == "__main__":
         print("[ERROR]: no model under the specified path", ARGS.exp)
     if algo == 'a2c':
         model = A2C.load(path)
-    if algo == 'ppo':
+    if algo == 'ppo' or algo == 'gsde_ppo':
         model = PPO.load(path)
     if algo == 'sac':
         model = SAC.load(path)
